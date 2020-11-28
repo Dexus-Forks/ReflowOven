@@ -2,7 +2,11 @@
 #include <stdio.h>
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
-#include "max6675.h"
+#include <max6675.h>
+#include <ThreadController.h>
+
+#include "Heater.h"
+
 //#define nextSerial softSerial // change to serial when going to hardware mode
 
 #define thermoDO A1
@@ -15,7 +19,6 @@ MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 SoftwareSerial debugSerial(A4, A5); // RX, TX //will later swap for hardware, with software debug out.
 
-#include <ThreadController.h>
 ThreadController controll = ThreadController();
 
 Thread nextSerialRCV = Thread();
@@ -59,7 +62,6 @@ uint8_t profile = 0;
 #define startTemp 40
 
 //dimmer vars
-float dutyTrig = 0; //0-100% dimmer value
 //volatile uint16_t oldAC_time = 0;
 //volatile uint16_t newAC_time = 0;
 float targetAC_time = 0;
@@ -135,6 +137,8 @@ uint8_t bLength = 0;
 uint8_t bCnt = 0;
 uint16_t beepTime = 0;
 
+Heater heat(heatPin);
+
 void setProf(uint8_t *prof)
 {
   for (int i = 0; i < 10; i++)
@@ -185,6 +189,7 @@ void beep(uint16_t length, uint8_t count)
     delay(length);
   }
 }
+
 void NoneBlockbeep(uint16_t length, uint8_t count)
 {
   beepTime = millis() + length;
@@ -265,194 +270,6 @@ void savePreset(uint8_t preset)
   }
   recoverPresets();
 }
-
-class heater
-{
-
-private:
-  uint8_t PWMcnt = 0;
-
-  uint16_t timeE = 0;
-  uint8_t prevTemp = 0;
-
-  ///////////PID copied in
-  //	float temperature_read = 0.0;
-  //	float PID_error = 0;
-  //	float previous_error = 0;
-  //	float elapsedTime, Time, timePrev;
-  //	float PID_value = 0;
-  //	int button_pressed = 0;
-  //	int menu_activated = 0;
-  //	float last_set_temperature = 0;
-  ////
-  ////	//PID constants
-  //////////////////////////////////////////////////////////////
-  //	int kp = 90;
-  //	int ki = 10;
-  //	int kd = 10;
-  //////////////////////////////////////////////////////////////
-  ////
-  //	int PID_p = 0;
-  //	int PID_i = 0;
-  //	int PID_d = 0;
-  //	float last_kp = 0;
-  //	float last_ki = 0;
-  //	float last_kd = 0;
-  //
-  //	int PID_values_fixed = 0;
-  ////////////// PID copied in^^^^
-
-public:
-  uint8_t hpin;
-  heater(uint8_t input) : hpin(input)
-  {
-  }
-
-  uint16_t target = 0;
-  uint16_t current = 0;
-  uint8_t Duty = 0;
-
-  bool heating = false;
-  bool running = false;
-
-  void runheaterPWM()
-  {
-    if ((timeE + 100) < millis())
-    {
-      setDelta();
-      timeE = millis();
-    }
-
-    if (running == true)
-    {
-      //debugSerial.println(dutyTrig);
-      //	dutyTrig=Duty;
-      if (dutyTrig < Duty)
-      {
-        dutyTrig++;
-      }
-      else
-      {
-        dutyTrig--;
-      }
-
-      if (dutyTrig < 0)
-      {
-        dutyTrig = 0;
-      }
-      if (dutyTrig > 100)
-      {
-        dutyTrig = 100;
-      }
-
-      //dutyTrig=dutyTrig+(Duty-dutyTrig/10);
-
-      //					debugSerial.println(dutyTrig);
-
-      //					if (Duty > PWMcnt)
-      //						{
-      //							digitalWrite(hpin, HIGH);
-      //							heating = true;
-      //						}
-      //					else
-      //						{
-      //							digitalWrite(hpin, LOW);
-      //							heating = false;
-      //						}
-      //
-      //					PWMcnt++;
-      //					if (PWMcnt >= 100)
-      //						{
-      //							PWMcnt = 0;
-      //						}
-    }
-    else
-    {
-
-      Duty = 0;
-      dutyTrig = 0;
-      //	PWMcnt = 0;
-    }
-  }
-
-  void run()
-  {
-    running = true;
-  }
-
-  void stop()
-  {
-    Duty = 0;
-    dutyTrig = 0;
-    digitalWrite(hpin, LOW);
-    heating = false;
-    running = false;
-  }
-
-#define dWidth 10 //the error scale in 'c
-  void setDelta()
-  {
-    //			// First we read the real value of temperature
-    //							temperature_read = current;
-    //
-    //							//Next we calculate the error between the setpoint and the real value
-    //							PID_error = target - temperature_read + 3;
-    //
-    //							//Calculate the P value
-    //							PID_p = 0.01 * kp * PID_error;
-    //
-    //							//Calculate the I value in a range on +-3
-    //							PID_i = 0.01 * PID_i + (ki * PID_error);
-    //
-    //							//For derivative we need real time to calculate speed change rate
-    //							timePrev = Time; // the previous time is stored before the actual time read
-    //							Time = millis();                            // actual time read
-    //
-    //							elapsedTime = (Time - timePrev) / 1000;
-    //							//Now we can calculate the D calue
-    //
-    //							PID_d = 0.01 * kd * ((PID_error - previous_error) / elapsedTime);
-    //
-    //							//Final total PID value is the sum of P + I + D
-    //							PID_value = PID_p + PID_i + PID_d;
-    //
-    //							//We define PWM range between 0 and 255
-    //							if (PID_value < 0)
-    //								{
-    //									PID_value = 0;
-    //								}
-    //							if (PID_value > 255)
-    //								{
-    //									PID_value = 255;
-    //								}
-    //							Duty=PID_value;
-    ////							//Now we can write the PWM signal to the mosfet on digital pin D3
-    ////
-    ////							//Since we activate the MOSFET with a 0 to the base of the BJT, we write 255-PID value (inverted)
-    ////							Duty=map(PID_value,0,255,0,100);//analogWrite(PWM_pin, 255 - PID_value);
-    //						previous_error = PID_error; //Remember to store the previous error for next loop.
-
-    int d = target + 3 - current;
-
-    if (target + 3 > current) //for the offeset observed when holding temp
-    {
-      if (d > dWidth)
-      {
-        Duty = 100; // in %
-      }
-      else
-      {
-        Duty = (100 / dWidth) * d;
-      }
-    }
-    else
-    {
-      Duty = 0;
-    }
-  }
-};
-
-heater heat(heatPin);
 
 void runHeaterPWM() //only way to link the thread to the class
 {
@@ -1219,7 +1036,7 @@ void reflowCycle()
 ISR(TIMER1_CAPT_vect)
 {
 
-  if (dutyTrig > upperClamp) // allowing true 100% though loosing that last 10% of control
+  if (heat.dutyTrig > upperClamp) // allowing true 100% though loosing that last 10% of control
   {
     PORTD |= (1 << 4);
   }
@@ -1233,12 +1050,12 @@ ISR(TIMER1_CAPT_vect)
   TCCR1B ^= (1 << ICES1); //flips rising to falling to rising... capture for state change capture
 
   icr1 = ICR1;
-  targ = 100 - dutyTrig;
+  targ = 100 - heat.dutyTrig;
   targetAC_time = (icr1 / 100) * targ; // set when to trig dimmer triac based on duty option set elseware, 100-duty as trigger triggers earlier and earlier in the cycle as duty goes up
 
   OCR1A = targetAC_time; // target for timer1 compa, to trigger duty turn on.
 
-  if (dutyTrig > 5) //limiting how far up the AC cycle it can trigger to avoid over lap to next AC cycle
+  if (heat.dutyTrig > 5) //limiting how far up the AC cycle it can trigger to avoid over lap to next AC cycle
   {
     TIMSK1 |= (1 << OCIE1A);   //Output compare eneabled
     TIMSK1 |= (1 << OCIE1B);   //Output compare eneabled
@@ -1254,7 +1071,7 @@ ISR(TIMER1_CAPT_vect)
 
 ISR(TIMER1_COMPA_vect)
 {
-  if (dutyTrig != 0)
+  if (heat.dutyTrig != 0)
   {
     //debugSerial.println("trig");
     PORTD |= (1 << 4); //turn on heat pin
@@ -1265,7 +1082,7 @@ ISR(TIMER1_COMPA_vect)
 ISR(TIMER1_COMPB_vect)
 {
 
-  if (dutyTrig > upperClamp) // allowing true 100% though loosing that last 10% of control
+  if (heat.dutyTrig > upperClamp) // allowing true 100% though loosing that last 10% of control
   {
     PORTD |= (1 << 4);
   }
@@ -1434,11 +1251,9 @@ end: // ignore nextions ff ff ff on startup
       case 0xb9:
         kp9But = true;
         break;
-
       case 0xe0:
         entBut = true;
         break;
-
       case 0xc0:
         cnclBut = true;
         break;
