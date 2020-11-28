@@ -1,4 +1,4 @@
-#include "Arduino.h"
+#include <Arduino.h>
 #include <stdio.h>
 #include <EEPROM.h>
 #include <SoftwareSerial.h>
@@ -134,6 +134,47 @@ uint8_t loadedProf[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 uint8_t bLength = 0;
 uint8_t bCnt = 0;
 uint16_t beepTime = 0;
+
+
+void setProf(uint8_t *prof)
+	{
+		for (int i = 0; i < 10; i++)
+			{
+				loadedProf[i] = prof[i];
+			}
+	}
+
+void loadProf(uint8_t prof)
+	{
+		profile = prof;
+		if (profile == 0)
+			{
+				setProf(leadProf);
+			}
+		else if (profile == 1)
+			{
+				setProf(unleadProf);
+			}
+		else if (profile == 2)
+			{
+				setProf(prof1);
+			}
+		else if (profile == 3)
+			{
+				setProf(prof2);
+			}
+		else if (profile == 4)
+			{
+				setProf(prof3);
+			}
+	}
+
+void nextConf()
+	{
+		nextSerial.write(0xff);
+		nextSerial.write(0xff);
+		nextSerial.write(0xff);
+	}
 
 void beep(uint16_t length, uint8_t count)
 	{
@@ -452,11 +493,11 @@ void updateDispTemps(int tar, int cur, int sec)
 	{
 
 		char buffer[25];
-		sprintf(buffer, "tarTemp.txt=\"%i °C\"", tar);
+		sprintf(buffer, "tarTemp.txt=\"%i ï¿½C\"", tar);
 		nextSerial.print(buffer);
 		nextConf();
 
-		sprintf(buffer, "curTemp.txt=\"%i °C\"", cur);
+		sprintf(buffer, "curTemp.txt=\"%i ï¿½C\"", cur);
 		nextSerial.print(buffer);
 		nextConf();
 
@@ -506,7 +547,7 @@ void updateCurrentTemp()
 				int temp = thermocouple.readCelsius();
 
 				char buffer[25];
-				sprintf(buffer, "curTemp.txt=\"%i °C\"", temp);
+				sprintf(buffer, "curTemp.txt=\"%i ï¿½C\"", temp);
 				nextSerial.print(buffer);
 				nextConf();
 			}
@@ -538,6 +579,246 @@ void showStat()
 //		debugSerial.print("  ");
 //		debugSerial.print((100 / icr1) * (targetAC_time - icr1));
 //		debugSerial.println(" %");
+	}
+
+
+void drawDot(uint8_t x, uint8_t y, uint8_t w, uint16_t col)
+	{
+		char buffer[30];
+
+		int a = graphX + x;
+		int b = graphY + graphH - y;
+
+		sprintf(buffer, "cirs %i,%i,%i,%i", a, b, w, col);
+
+		nextSerial.print(buffer);
+		nextConf();
+
+	}
+
+void renderLine(uint8_t xA, uint8_t yA, uint8_t xB, uint8_t yB, uint16_t col) // drawing a line primitive
+	{
+		int xAa = graphX + xA;
+		int xBb = graphX + xB;
+
+		int yAa = graphY + graphH - yA;
+		int yBb = graphY + graphH - yB;
+
+		char buffer[30];
+
+		sprintf(buffer, "line %i,%i,%i,%i,%i", xAa, yAa, xBb, yBb, col);
+		nextSerial.print(buffer);
+		nextConf();
+	}
+
+void drawLine(uint8_t fromX, uint8_t fromY, uint8_t toX, uint8_t toY) // drawing line with circles along a path give thickness
+	{
+		int16_t stepX = toX - fromX;
+		int16_t stepY = toY - fromY;
+
+		float stepsY = (float(stepY) / float(stepX));
+
+		for (uint8_t d = 0; d <= stepX; d++)
+			{
+				drawDot(fromX + d, fromY + (stepsY * d), 1, 64960);
+			}
+
+	}
+//                0                1                            2                   3                   4                     5                       6                       7                      8                 10
+//		 heatupRate 	heatupTime    soakTemp    soakTime    rampRate    rampTime    reflowTemp    reflowTime    coolRate     coolTime
+//leadProf[10] = {    3, 	    1, 	        130, 	     70, 	  5, 	      1, 	  190,          30, 	      6,           1};
+
+void plotProfile()
+	{
+		uint8_t curr = 25; //replace this with temp probe reading
+
+		uint8_t preheatRateTime = ((loadedProf[2] - curr + tempOffset)
+				/ loadedProf[0]); //-25 average room temp for starting could replace with ambient temp from sensor at boot time
+		uint8_t soaktime = loadedProf[3];
+		uint8_t heatRampTime = ((loadedProf[6] - loadedProf[2]) / loadedProf[4]);
+		uint8_t reflow = loadedProf[7];
+		uint8_t cooldown = (loadedProf[6] - curr) / 6;
+
+//		debugSerial.print(preheatRateTime);
+//		debugSerial.print(" ");
+//		debugSerial.print(soaktime);
+//		debugSerial.print(" ");
+//		debugSerial.print(heatRampTime);
+//		debugSerial.print(" ");
+//		debugSerial.print(reflow);
+//		debugSerial.print(" ");
+//		debugSerial.print(cooldown);
+
+		uint16_t totalTime = preheatRateTime + soaktime + heatRampTime + reflow
+				+ cooldown;
+//
+//		debugSerial.print(" = ");
+//		debugSerial.println(totalTime);
+
+		uint8_t preheatX = (float(graphW) / float(totalTime))
+				* float(preheatRateTime);
+		uint8_t preheatY = (float(graphH) / (float(loadedProf[6] + graphHeadroom)))
+				* float(loadedProf[2]);
+
+//		debugSerial.print(preheatX);
+//		debugSerial.print(" ");
+//		debugSerial.println(preheatY);
+
+		//drawDot(3, 3, 3, 64960);
+
+		//drawDot(preheatX, preheatY, 3, 64960);
+
+		uint8_t flowrampX = (float(graphW) / float(totalTime))
+				* float(preheatRateTime + loadedProf[3]);
+		// drawDot(flowrampX, preheatY, 3, 64960);
+
+		uint8_t peakdot = (float(graphW) / float(totalTime))
+				* float(preheatRateTime + loadedProf[3] + heatRampTime);
+		uint8_t peakY = (float(graphH) / (float(loadedProf[6] + graphHeadroom)))
+				* loadedProf[6];
+		// drawDot(peakdot, peakY, 3, 64960);
+
+		uint16_t peakdotend = (float(graphW) / float(totalTime))
+				* float(
+						(preheatRateTime + loadedProf[3] + heatRampTime + loadedProf[7]));
+		uint8_t peakYend = (float(graphH) / (float(loadedProf[6] + graphHeadroom)))
+				* loadedProf[6];
+		// drawDot(peakdotend, peakYend, 3, 64960);
+
+		// drawDot(graphW - 3, 3, 3, 64960);
+
+		//draw the connecting line
+
+		drawLine(2, 2, preheatX, preheatY);
+		drawLine(preheatX, preheatY, flowrampX, preheatY);
+		drawLine(flowrampX, preheatY, peakdot, peakY);
+		drawLine(peakdot, peakY, peakdotend, peakYend);
+		drawLine(peakdotend, peakYend, graphW - 2, 2);
+
+		renderLine(2, 2, preheatX, preheatY, 64960);
+		renderLine(preheatX, preheatY, flowrampX, preheatY, 64960);
+		renderLine(flowrampX, preheatY, peakdot, peakY, 64960);
+		renderLine(peakdot, peakY, peakdotend, peakYend, 64960);
+		renderLine(peakdotend, peakYend, graphW - 2, 2, 64960);
+
+		renderLine(preheatX, 0, preheatX, graphH, 19017);
+		renderLine(flowrampX, 0, flowrampX, graphH, 19017);
+		renderLine(peakdot, 0, peakdot, graphH, 19017);
+		renderLine(peakdotend, 0, peakdotend, graphH, 19017);
+
+		char buffer[25];
+
+		sprintf(buffer, "huRate.txt=\"%i  \"", loadedProf[0]);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "huTime.txt=\"%i  \"", loadedProf[1]);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "soakTemp.txt=\"%i\"", loadedProf[2] + tempOffset);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "soakTime.txt=\"%i\"", loadedProf[3]);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "rpRate.txt=\"%i  \"", loadedProf[4]);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "rpTime.txt=\"%i  \"", loadedProf[5]);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "rTemp.txt=\"%i\"", loadedProf[6] + tempOffset);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "rTime.txt=\"%i\"", loadedProf[7]);
+		nextSerial.print(buffer);
+		nextConf();
+
+		sprintf(buffer, "tarTemp.txt=\"%i ï¿½C\"", 0);
+		nextSerial.print(buffer);
+		nextConf();
+
+		uint8_t minutes = totalTime / 60;
+		uint8_t seconds = totalTime - (60 * minutes);
+
+		sprintf(buffer, "stopclock.txt=\"%i:%i\"", minutes, seconds);
+		nextSerial.print(buffer);
+		nextConf();
+
+		switch (profile)
+			{
+		case 0:
+			{
+				nextSerial.print("profName.txt=\"LEADED\"");
+				nextConf();
+				break;
+			}
+		case 1:
+			{
+				nextSerial.print("profName.txt=\"LEAD FREE\"");
+				nextConf();
+				break;
+			}
+		case 2:
+			{
+				nextSerial.print("profName.txt=\"Profile 1\"");
+				nextConf();
+				break;
+			}
+		case 3:
+			{
+				nextSerial.print("profName.txt=\"Profile 2\"");
+				nextConf();
+				break;
+			}
+		case 4:
+			{
+				nextSerial.print("profName.txt=\"Profile 3\"");
+				nextConf();
+				break;
+			}
+			}
+
+	}
+
+void loadPage(uint8_t pages)
+	{
+
+		if (pages == mainPage)
+			{
+				beep(20, 2);
+				nextSerial.print("page main");
+				nextConf();
+				delay(70);
+				page = mainPage;
+				plotProfile();
+
+			}
+
+		if (pages == presetsPage)
+			{
+				beep(50, 1);
+				nextSerial.print("page presets");
+				nextConf();
+				page = presetsPage;
+				delay(70);
+			}
+
+		if (pages == keypadPage)
+			{
+				beep(50, 1);
+				nextSerial.print("page keypad");
+				nextConf();
+				page = keypadPage;
+				delay(70);
+			}
+
 	}
 
 void reflowCycle()
@@ -873,11 +1154,11 @@ void reflowCycle()
 								targ = 40;
 								curr = thermocouple.readCelsius();
 
-								sprintf(buffer, "tarTemp.txt=\"%i °C\"", targ);
+								sprintf(buffer, "tarTemp.txt=\"%i ï¿½C\"", targ);
 								nextSerial.print(buffer);
 								nextConf();
 
-								sprintf(buffer, "curTemp.txt=\"%i °C\"", curr);
+								sprintf(buffer, "curTemp.txt=\"%i ï¿½C\"", curr);
 								nextSerial.print(buffer);
 								nextConf();
 
@@ -1040,395 +1321,6 @@ ISR(TIMER1_COMPB_vect)
 		else
 			{
 				PORTD &= ~(1 << 4);
-			}
-
-	}
-
-void setup()
-	{
-		pinMode(beepPin, OUTPUT);
-
-		pinMode(flipLed1, OUTPUT);
-		pinMode(flipLed2, OUTPUT);
-
-		pinMode(heatPin, OUTPUT);
-
-		pinMode(8, INPUT);
-
-		digitalWrite(heatPin, LOW);
-
-		//beep(20, 10);
-		beep(500, 2);
-
-		debugSerial.begin(115200);
-
-		/*Valid values are: 2400, 4800, 9600, 19200, 31250, 38400, 57600, and 115200, 230400, 250000, 256000, 512000, and 921600*/
-
-		nextSerial.begin(9600); //increase baud rate when going serial
-		delay(500);
-		nextSerial.print("baud=115200");
-		nextConf();
-		delay(500);
-
-		nextSerial.end();
-		nextSerial.begin(115200);
-		delay(500);
-
-		recoverPresets();
-
-		//////////////////////
-		/* AC Timing stuff*/
-		noInterrupts(); // disable all interrupts
-
-		TCCR1A = 0;
-		TCCR1B = 0;
-
-		TCCR1B &= ~(1 << WGM12); // WGm02 bit set to zero? for normal mode, to not clear on compare match? Is this right?
-		/*WGM02:0=0 according to 328 datasheet, another example calls for WGM12...confusing*/
-
-		TCCR1B |= (1 << CS12);    // 256 prescaler
-		TCCR1B &= ~(1 << CS11);
-		TCCR1B &= ~(1 << CS10);
-
-		//TCCR1B |= (1 << ICNC1); //filter
-
-		TIMSK1 |= (1 << OCIE1A);  //Output compare eneabled
-		TIMSK1 |= (1 << ICIE1);  // input capture enabled
-
-		TCNT1 = 0; //reset to zero
-
-		interrupts();             // enable all interrupts
-
-		/////////////////////
-
-		nextSerialRCV.onRun(nextSerialCHK);
-		nextSerialRCV.setInterval(10);
-		controll.add(&nextSerialRCV);
-
-		buttonCheck.onRun(checkButs);
-		buttonCheck.setInterval(50);
-		controll.add(&buttonCheck);
-
-		heatPWM.onRun(runHeaterPWM);
-		heatPWM.setInterval(20);
-		controll.add(&heatPWM);
-
-		cuTemp.onRun(updateCurrentTemp);
-		cuTemp.setInterval(1000);
-		controll.add(&cuTemp);
-
-//		beeper.onRun(doBeep);
-//		beeper.setInterval(1);
-//		controll.add(&beeper);
-
-		delay(2000);
-
-		loadProf(0);
-		loadPage(mainPage);
-
-	}
-
-void loadPage(uint8_t pages)
-	{
-
-		if (pages == mainPage)
-			{
-				beep(20, 2);
-				nextSerial.print("page main");
-				nextConf();
-				delay(70);
-				page = mainPage;
-				plotProfile();
-
-			}
-
-		if (pages == presetsPage)
-			{
-				beep(50, 1);
-				nextSerial.print("page presets");
-				nextConf();
-				page = presetsPage;
-				delay(70);
-			}
-
-		if (pages == keypadPage)
-			{
-				beep(50, 1);
-				nextSerial.print("page keypad");
-				nextConf();
-				page = keypadPage;
-				delay(70);
-			}
-
-	}
-//                0                1                            2                   3                   4                     5                       6                       7                      8                 10
-//		 heatupRate 	heatupTime    soakTemp    soakTime    rampRate    rampTime    reflowTemp    reflowTime    coolRate     coolTime
-//leadProf[10] = {    3, 	    1, 	        130, 	     70, 	  5, 	      1, 	  190,          30, 	      6,           1};
-void loadKeypad(uint8_t *value, uint8_t arr)
-	{
-		nextSerial.print("page keypad");
-		nextConf();
-		delay(50);
-		page = keypadPage;
-
-		uint8_t keypadBuffer[3] { 0, 0, 0 };
-		while (true)
-			{
-				nextSerialCHK();
-				delay(50);
-
-				uint8_t reply = checkKeypad();
-				if (reply != 100)
-					{
-						if (reply != 20 && reply != 30)
-							{
-//								debugSerial.println(reply);
-								keypadBuffer[2] = keypadBuffer[1];
-								keypadBuffer[1] = keypadBuffer[0];
-								keypadBuffer[0] = reply; //redesign to use a circular buffer read...
-
-								char buff[20];
-								sprintf(buff, "n0.val=%i%i%i", keypadBuffer[2], keypadBuffer[1],
-										keypadBuffer[0]);
-								nextSerial.print(buff);
-								nextConf();
-
-//								debugSerial.println(
-//										(100 * keypadBuffer[2]) + (10 * keypadBuffer[1])
-//												+ (keypadBuffer[0]));
-							}
-						else if (reply == 20)
-							{
-								if (arr == 2 || arr == 6)
-									{
-										value[arr] = (100 * keypadBuffer[2])
-												+ (10 * keypadBuffer[1])
-												+ (keypadBuffer[0] - tempOffset); //edit field value
-									}
-								else
-									{
-										value[arr] = (100 * keypadBuffer[2])
-												+ (10 * keypadBuffer[1]) + (keypadBuffer[0]); //edit field value
-									}
-								loadPage(mainPage);
-								break;
-							}
-						else if (reply == 30)
-							{
-								loadPage(mainPage); //cancel and reload main+
-								break;
-							}
-					}
-			}
-	}
-
-void nextConf()
-	{
-		nextSerial.write(0xff);
-		nextSerial.write(0xff);
-		nextSerial.write(0xff);
-	}
-void drawDot(uint8_t x, uint8_t y, uint8_t w, uint16_t col)
-	{
-		char buffer[30];
-
-		int a = graphX + x;
-		int b = graphY + graphH - y;
-
-		sprintf(buffer, "cirs %i,%i,%i,%i", a, b, w, col);
-
-		nextSerial.print(buffer);
-		nextConf();
-
-	}
-
-void renderLine(uint8_t xA, uint8_t yA, uint8_t xB, uint8_t yB, uint16_t col) // drawing a line primitive
-	{
-		int xAa = graphX + xA;
-		int xBb = graphX + xB;
-
-		int yAa = graphY + graphH - yA;
-		int yBb = graphY + graphH - yB;
-
-		char buffer[30];
-
-		sprintf(buffer, "line %i,%i,%i,%i,%i", xAa, yAa, xBb, yBb, col);
-		nextSerial.print(buffer);
-		nextConf();
-	}
-
-void drawLine(uint8_t fromX, uint8_t fromY, uint8_t toX, uint8_t toY) // drawing line with circles along a path give thickness
-	{
-		int16_t stepX = toX - fromX;
-		int16_t stepY = toY - fromY;
-
-		float stepsY = (float(stepY) / float(stepX));
-
-		for (uint8_t d = 0; d <= stepX; d++)
-			{
-				drawDot(fromX + d, fromY + (stepsY * d), 1, 64960);
-			}
-
-	}
-//                0                1                            2                   3                   4                     5                       6                       7                      8                 10
-//		 heatupRate 	heatupTime    soakTemp    soakTime    rampRate    rampTime    reflowTemp    reflowTime    coolRate     coolTime
-//leadProf[10] = {    3, 	    1, 	        130, 	     70, 	  5, 	      1, 	  190,          30, 	      6,           1};
-
-void plotProfile()
-	{
-		uint8_t curr = 25; //replace this with temp probe reading
-
-		uint8_t preheatRateTime = ((loadedProf[2] - curr + tempOffset)
-				/ loadedProf[0]); //-25 average room temp for starting could replace with ambient temp from sensor at boot time
-		uint8_t soaktime = loadedProf[3];
-		uint8_t heatRampTime = ((loadedProf[6] - loadedProf[2]) / loadedProf[4]);
-		uint8_t reflow = loadedProf[7];
-		uint8_t cooldown = (loadedProf[6] - curr) / 6;
-
-//		debugSerial.print(preheatRateTime);
-//		debugSerial.print(" ");
-//		debugSerial.print(soaktime);
-//		debugSerial.print(" ");
-//		debugSerial.print(heatRampTime);
-//		debugSerial.print(" ");
-//		debugSerial.print(reflow);
-//		debugSerial.print(" ");
-//		debugSerial.print(cooldown);
-
-		uint16_t totalTime = preheatRateTime + soaktime + heatRampTime + reflow
-				+ cooldown;
-//
-//		debugSerial.print(" = ");
-//		debugSerial.println(totalTime);
-
-		uint8_t preheatX = (float(graphW) / float(totalTime))
-				* float(preheatRateTime);
-		uint8_t preheatY = (float(graphH) / (float(loadedProf[6] + graphHeadroom)))
-				* float(loadedProf[2]);
-
-//		debugSerial.print(preheatX);
-//		debugSerial.print(" ");
-//		debugSerial.println(preheatY);
-
-		//drawDot(3, 3, 3, 64960);
-
-		//drawDot(preheatX, preheatY, 3, 64960);
-
-		uint8_t flowrampX = (float(graphW) / float(totalTime))
-				* float(preheatRateTime + loadedProf[3]);
-		// drawDot(flowrampX, preheatY, 3, 64960);
-
-		uint8_t peakdot = (float(graphW) / float(totalTime))
-				* float(preheatRateTime + loadedProf[3] + heatRampTime);
-		uint8_t peakY = (float(graphH) / (float(loadedProf[6] + graphHeadroom)))
-				* loadedProf[6];
-		// drawDot(peakdot, peakY, 3, 64960);
-
-		uint16_t peakdotend = (float(graphW) / float(totalTime))
-				* float(
-						(preheatRateTime + loadedProf[3] + heatRampTime + loadedProf[7]));
-		uint8_t peakYend = (float(graphH) / (float(loadedProf[6] + graphHeadroom)))
-				* loadedProf[6];
-		// drawDot(peakdotend, peakYend, 3, 64960);
-
-		// drawDot(graphW - 3, 3, 3, 64960);
-
-		//draw the connecting line
-
-		drawLine(2, 2, preheatX, preheatY);
-		drawLine(preheatX, preheatY, flowrampX, preheatY);
-		drawLine(flowrampX, preheatY, peakdot, peakY);
-		drawLine(peakdot, peakY, peakdotend, peakYend);
-		drawLine(peakdotend, peakYend, graphW - 2, 2);
-
-		renderLine(2, 2, preheatX, preheatY, 64960);
-		renderLine(preheatX, preheatY, flowrampX, preheatY, 64960);
-		renderLine(flowrampX, preheatY, peakdot, peakY, 64960);
-		renderLine(peakdot, peakY, peakdotend, peakYend, 64960);
-		renderLine(peakdotend, peakYend, graphW - 2, 2, 64960);
-
-		renderLine(preheatX, 0, preheatX, graphH, 19017);
-		renderLine(flowrampX, 0, flowrampX, graphH, 19017);
-		renderLine(peakdot, 0, peakdot, graphH, 19017);
-		renderLine(peakdotend, 0, peakdotend, graphH, 19017);
-
-		char buffer[25];
-
-		sprintf(buffer, "huRate.txt=\"%i  \"", loadedProf[0]);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "huTime.txt=\"%i  \"", loadedProf[1]);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "soakTemp.txt=\"%i\"", loadedProf[2] + tempOffset);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "soakTime.txt=\"%i\"", loadedProf[3]);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "rpRate.txt=\"%i  \"", loadedProf[4]);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "rpTime.txt=\"%i  \"", loadedProf[5]);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "rTemp.txt=\"%i\"", loadedProf[6] + tempOffset);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "rTime.txt=\"%i\"", loadedProf[7]);
-		nextSerial.print(buffer);
-		nextConf();
-
-		sprintf(buffer, "tarTemp.txt=\"%i °C\"", 0);
-		nextSerial.print(buffer);
-		nextConf();
-
-		uint8_t minutes = totalTime / 60;
-		uint8_t seconds = totalTime - (60 * minutes);
-
-		sprintf(buffer, "stopclock.txt=\"%i:%i\"", minutes, seconds);
-		nextSerial.print(buffer);
-		nextConf();
-
-		switch (profile)
-			{
-		case 0:
-			{
-				nextSerial.print("profName.txt=\"LEADED\"");
-				nextConf();
-				break;
-			}
-		case 1:
-			{
-				nextSerial.print("profName.txt=\"LEAD FREE\"");
-				nextConf();
-				break;
-			}
-		case 2:
-			{
-				nextSerial.print("profName.txt=\"Profile 1\"");
-				nextConf();
-				break;
-			}
-		case 3:
-			{
-				nextSerial.print("profName.txt=\"Profile 2\"");
-				nextConf();
-				break;
-			}
-		case 4:
-			{
-				nextSerial.print("profName.txt=\"Profile 3\"");
-				nextConf();
-				break;
-			}
 			}
 
 	}
@@ -1606,6 +1498,161 @@ void nextSerialCHK()
 			}
 	}
 
+
+uint8_t checkKeypad()
+	{
+		//Keypad
+		if (kp0But == true)
+			{
+				beep(50, 1);
+				kp0But = false;
+				return 0;
+
+			}
+		else if (kp1But == true)
+			{
+				beep(50, 1);
+				kp1But = false;
+				return 1;
+
+			}
+		else if (kp2But == true)
+			{
+				beep(50, 1);
+				kp2But = false;
+				return 2;
+
+			}
+		else if (kp3But == true)
+			{
+				beep(50, 1);
+				kp3But = false;
+				return 3;
+
+			}
+		else if (kp4But == true)
+			{
+				beep(50, 1);
+				kp4But = false;
+				return 4;
+
+			}
+		else if (kp5But == true)
+			{
+				beep(50, 1);
+				kp5But = false;
+				return 5;
+
+			}
+		else if (kp6But == true)
+			{
+				beep(50, 1);
+				kp6But = false;
+				return 6;
+
+			}
+		else if (kp7But == true)
+			{
+				beep(50, 1);
+				kp7But = false;
+				return 7;
+
+			}
+		else if (kp8But == true)
+			{
+				beep(50, 1);
+				kp8But = false;
+				return 8;
+
+			}
+		else if (kp9But == true)
+			{
+				beep(50, 1);
+				kp9But = false;
+				return 9;
+
+			}
+
+		else if (entBut == true)
+			{
+				beep(100, 1);
+				entBut = false;
+				return 20;
+			}
+		else if (cnclBut == true)
+			{
+				beep(50, 2);
+				cnclBut = false;
+				return 30;
+			}
+		else
+			{
+				return 100;
+			}
+
+	}
+
+//                0                1                            2                   3                   4                     5                       6                       7                      8                 10
+//		 heatupRate 	heatupTime    soakTemp    soakTime    rampRate    rampTime    reflowTemp    reflowTime    coolRate     coolTime
+//leadProf[10] = {    3, 	    1, 	        130, 	     70, 	  5, 	      1, 	  190,          30, 	      6,           1};
+void loadKeypad(uint8_t *value, uint8_t arr)
+	{
+		nextSerial.print("page keypad");
+		nextConf();
+		delay(50);
+		page = keypadPage;
+
+		uint8_t keypadBuffer[3] { 0, 0, 0 };
+		while (true)
+			{
+				nextSerialCHK();
+				delay(50);
+
+				uint8_t reply = checkKeypad();
+				if (reply != 100)
+					{
+						if (reply != 20 && reply != 30)
+							{
+//								debugSerial.println(reply);
+								keypadBuffer[2] = keypadBuffer[1];
+								keypadBuffer[1] = keypadBuffer[0];
+								keypadBuffer[0] = reply; //redesign to use a circular buffer read...
+
+								char buff[20];
+								sprintf(buff, "n0.val=%i%i%i", keypadBuffer[2], keypadBuffer[1],
+										keypadBuffer[0]);
+								nextSerial.print(buff);
+								nextConf();
+
+//								debugSerial.println(
+//										(100 * keypadBuffer[2]) + (10 * keypadBuffer[1])
+//												+ (keypadBuffer[0]));
+							}
+						else if (reply == 20)
+							{
+								if (arr == 2 || arr == 6)
+									{
+										value[arr] = (100 * keypadBuffer[2])
+												+ (10 * keypadBuffer[1])
+												+ (keypadBuffer[0] - tempOffset); //edit field value
+									}
+								else
+									{
+										value[arr] = (100 * keypadBuffer[2])
+												+ (10 * keypadBuffer[1]) + (keypadBuffer[0]); //edit field value
+									}
+								loadPage(mainPage);
+								break;
+							}
+						else if (reply == 30)
+							{
+								loadPage(mainPage); //cancel and reload main+
+								break;
+							}
+					}
+			}
+	}
+
 void checkButs()
 	{
 		if (startBut == true)
@@ -1777,98 +1824,90 @@ void checkButs()
 
 	}
 
-uint8_t checkKeypad()
+void setup()
 	{
-		//Keypad
-		if (kp0But == true)
-			{
-				beep(50, 1);
-				kp0But = false;
-				return 0;
+		pinMode(beepPin, OUTPUT);
 
-			}
-		else if (kp1But == true)
-			{
-				beep(50, 1);
-				kp1But = false;
-				return 1;
+		pinMode(flipLed1, OUTPUT);
+		pinMode(flipLed2, OUTPUT);
 
-			}
-		else if (kp2But == true)
-			{
-				beep(50, 1);
-				kp2But = false;
-				return 2;
+		pinMode(heatPin, OUTPUT);
 
-			}
-		else if (kp3But == true)
-			{
-				beep(50, 1);
-				kp3But = false;
-				return 3;
+		pinMode(8, INPUT);
 
-			}
-		else if (kp4But == true)
-			{
-				beep(50, 1);
-				kp4But = false;
-				return 4;
+		digitalWrite(heatPin, LOW);
 
-			}
-		else if (kp5But == true)
-			{
-				beep(50, 1);
-				kp5But = false;
-				return 5;
+		//beep(20, 10);
+		beep(500, 2);
 
-			}
-		else if (kp6But == true)
-			{
-				beep(50, 1);
-				kp6But = false;
-				return 6;
+		debugSerial.begin(115200);
 
-			}
-		else if (kp7But == true)
-			{
-				beep(50, 1);
-				kp7But = false;
-				return 7;
+		/*Valid values are: 2400, 4800, 9600, 19200, 31250, 38400, 57600, and 115200, 230400, 250000, 256000, 512000, and 921600*/
 
-			}
-		else if (kp8But == true)
-			{
-				beep(50, 1);
-				kp8But = false;
-				return 8;
+		nextSerial.begin(9600); //increase baud rate when going serial
+		delay(500);
+		nextSerial.print("baud=115200");
+		nextConf();
+		delay(500);
 
-			}
-		else if (kp9But == true)
-			{
-				beep(50, 1);
-				kp9But = false;
-				return 9;
+		nextSerial.end();
+		nextSerial.begin(115200);
+		delay(500);
 
-			}
+		recoverPresets();
 
-		else if (entBut == true)
-			{
-				beep(100, 1);
-				entBut = false;
-				return 20;
-			}
-		else if (cnclBut == true)
-			{
-				beep(50, 2);
-				cnclBut = false;
-				return 30;
-			}
-		else
-			{
-				return 100;
-			}
+		//////////////////////
+		/* AC Timing stuff*/
+		noInterrupts(); // disable all interrupts
+
+		TCCR1A = 0;
+		TCCR1B = 0;
+
+		TCCR1B &= ~(1 << WGM12); // WGm02 bit set to zero? for normal mode, to not clear on compare match? Is this right?
+		/*WGM02:0=0 according to 328 datasheet, another example calls for WGM12...confusing*/
+
+		TCCR1B |= (1 << CS12);    // 256 prescaler
+		TCCR1B &= ~(1 << CS11);
+		TCCR1B &= ~(1 << CS10);
+
+		//TCCR1B |= (1 << ICNC1); //filter
+
+		TIMSK1 |= (1 << OCIE1A);  //Output compare eneabled
+		TIMSK1 |= (1 << ICIE1);  // input capture enabled
+
+		TCNT1 = 0; //reset to zero
+
+		interrupts();             // enable all interrupts
+
+		/////////////////////
+
+		nextSerialRCV.onRun(nextSerialCHK);
+		nextSerialRCV.setInterval(10);
+		controll.add(&nextSerialRCV);
+
+		buttonCheck.onRun(checkButs);
+		buttonCheck.setInterval(50);
+		controll.add(&buttonCheck);
+
+		heatPWM.onRun(runHeaterPWM);
+		heatPWM.setInterval(20);
+		controll.add(&heatPWM);
+
+		cuTemp.onRun(updateCurrentTemp);
+		cuTemp.setInterval(1000);
+		controll.add(&cuTemp);
+
+//		beeper.onRun(doBeep);
+//		beeper.setInterval(1);
+//		controll.add(&beeper);
+
+		delay(2000);
+
+		loadProf(0);
+		loadPage(mainPage);
 
 	}
+
 void passThrough()
 	{
 
@@ -1905,39 +1944,6 @@ void passThrough()
 					{
 						serialBuffer[i] = NULL;
 					}
-			}
-	}
-
-void loadProf(uint8_t prof)
-	{
-		profile = prof;
-		if (profile == 0)
-			{
-				setProf(leadProf);
-			}
-		else if (profile == 1)
-			{
-				setProf(unleadProf);
-			}
-		else if (profile == 2)
-			{
-				setProf(prof1);
-			}
-		else if (profile == 3)
-			{
-				setProf(prof2);
-			}
-		else if (profile == 4)
-			{
-				setProf(prof3);
-			}
-	}
-
-void setProf(uint8_t *prof)
-	{
-		for (int i = 0; i < 10; i++)
-			{
-				loadedProf[i] = prof[i];
 			}
 	}
 
