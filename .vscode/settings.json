@@ -1,0 +1,6 @@
+{
+  "C_Cpp.clang_format_style": "Visual Studio",
+  "editor.formatOnSave": true,
+  "editor.tabSize": 2,
+  "editor.detectIndentation": false
+}

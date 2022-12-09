@@ -1,3 +1,0 @@
-I used an Arduino Pro mini
-
-Code was not made for public consumption, so expect commented out code as I tested things, and not well commented functions...
